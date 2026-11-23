@@ -1,3 +1,6 @@
+from datetime import datetime
+from decimal import Decimal
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
@@ -12,3 +15,29 @@ class CustomerRead(BaseModel):
     id: int
     name: str
     email: str
+
+
+class ServiceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=1, max_length=1000)
+    # gt=0 lives in the schema, so the rule is enforced before the database sees it.
+    suggested_price: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+
+
+class ServiceUpdate(BaseModel):
+    """Every field is optional: a PATCH only touches what it receives."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, min_length=1, max_length=1000)
+    suggested_price: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
+
+
+class ServiceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str
+    suggested_price: Decimal
+    created_at: datetime
+    updated_at: datetime
