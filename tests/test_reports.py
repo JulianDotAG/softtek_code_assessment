@@ -1,141 +1,104 @@
-SERVICE = {
-    "name": "24/7 support",
-    "description": "Phone and email support, 8 hour response time",
-    "suggested_price": "1500.00",
-}
+"""`GET /reports/last-sales` and `GET /reports/sales-by-customer`.
 
-RICH_SERVICE = {
-    "name": "Custom integration",
-    "description": "Integration with a third party system, quoted per project",
-    "suggested_price": "12000.00",
-}
+Both reports read the amount frozen on the order, never the current service price, and both
+exclude cancelled orders.
 
+`last-sales` is a flat array of at most ten rows, newest first. Ten is a ceiling and it is
+applied after the cancelled orders are removed, so a cancellation never shrinks the window.
 
-def _customer(client, name="ACME Corp", email="contact@acme.com"):
-    response = client.post("/customers", json={"name": name, "email": email})
-    assert response.status_code == 201, response.text
-    return response.json()
+`sales-by-customer` covers every customer, including one with no sales at all
+(`order_count: 0, total: "0.00"`), ordered by accumulated total, biggest first, with the
+customer id as tie-breaker.
+"""
+
+RICH_SERVICE = {"suggested_price": "12000.00"}
 
 
-def _service(client, payload=None):
-    response = client.post("/services", json=payload or SERVICE)
-    assert response.status_code == 201, response.text
-    return response.json()
-
-
-def _order(client, customer_id, service_id):
-    response = client.post("/orders", json={"customer_id": customer_id, "service_id": service_id})
-    assert response.status_code == 201, response.text
-    return response.json()
-
-
-def _cancel(client, order_id):
-    response = client.post(f"/orders/{order_id}/cancel")
-    assert response.status_code == 200, response.text
-
-
-def _report(client, path):
-    """Fetch a report, asserting 200 first so a missing route fails legibly."""
-    response = client.get(path)
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-def test_last_sales_returns_an_empty_array_when_there_are_no_sales(client):
+def test_last_sales_of_a_database_without_sales_is_an_empty_array(client):
     response = client.get("/reports/last-sales")
 
     assert response.status_code == 200
     assert response.json() == []
 
 
-def test_last_sales_returns_the_ten_most_recent(client):
-    customer = _customer(client)
-    service = _service(client)
-    orders = [_order(client, customer["id"], service["id"]) for _ in range(12)]
+def test_last_sales_returns_the_ten_most_recent(create_order, customer, service, get):
+    orders = [create_order(customer["id"], service["id"]) for _ in range(12)]
 
-    body = _report(client, "/reports/last-sales")
+    body = get("/reports/last-sales")
 
     assert len(body) == 10
     assert {row["id"] for row in body} == {order["id"] for order in orders[2:]}
 
 
-def test_last_sales_returns_everything_when_there_are_fewer_than_ten(client):
-    """Ten is a ceiling, not a target."""
-    customer = _customer(client)
-    service = _service(client)
-    for _ in range(3):
-        _order(client, customer["id"], service["id"])
+def test_last_sales_returns_everything_when_there_are_fewer_than_ten(
+    create_order, customer, service, get
+):
+    orders = [create_order(customer["id"], service["id"]) for _ in range(3)]
 
-    assert len(_report(client, "/reports/last-sales")) == 3
+    assert [row["id"] for row in get("/reports/last-sales")] == [
+        orders[2]["id"],
+        orders[1]["id"],
+        orders[0]["id"],
+    ]
 
 
-def test_last_sales_is_ordered_newest_first(client):
-    customer = _customer(client)
-    service = _service(client)
-    orders = [_order(client, customer["id"], service["id"]) for _ in range(3)]
+def test_last_sales_is_ordered_newest_first(create_order, customer, service, get):
+    orders = [create_order(customer["id"], service["id"]) for _ in range(3)]
 
-    body = _report(client, "/reports/last-sales")
+    body = get("/reports/last-sales")
 
-    # Every row shares created_at inside one test transaction, so the tie-breaker
-    # (id DESC) is what makes "newest first" deterministic.
+    # Every row shares created_at inside one test transaction, so the id tie-breaker is
+    # what makes "newest first" deterministic.
     assert [row["id"] for row in body] == [orders[2]["id"], orders[1]["id"], orders[0]["id"]]
     assert [row["created_at"] for row in body] == sorted(
         (row["created_at"] for row in body), reverse=True
     )
 
 
-def test_last_sales_excludes_cancelled_orders(client):
-    customer = _customer(client)
-    service = _service(client)
-    kept = _order(client, customer["id"], service["id"])
-    cancelled = _order(client, customer["id"], service["id"])
-    _cancel(client, cancelled["id"])
+def test_last_sales_leaves_out_cancelled_orders(order, create_order, client, get):
+    cancelled = create_order(order["customer_id"], order["service_id"])
+    client.post(f"/orders/{cancelled['id']}/cancel")
 
-    body = _report(client, "/reports/last-sales")
+    body = get("/reports/last-sales")
 
-    assert [row["id"] for row in body] == [kept["id"]]
+    assert [row["id"] for row in body] == [order["id"]]
     assert cancelled["folio"] not in {row["folio"] for row in body}
 
 
-def test_last_sales_fills_the_window_after_removing_cancelled_orders(client):
-    customer = _customer(client)
-    service = _service(client)
-    orders = [_order(client, customer["id"], service["id"]) for _ in range(12)]
-    _cancel(client, orders[-1]["id"])
+def test_last_sales_fills_the_window_after_removing_cancelled_orders(
+    create_order, customer, service, client, get
+):
+    orders = [create_order(customer["id"], service["id"]) for _ in range(12)]
+    client.post(f"/orders/{orders[-1]['id']}/cancel")
 
-    body = _report(client, "/reports/last-sales")
+    body = get("/reports/last-sales")
 
-    # 12 orders, one cancelled: the limit is applied after excluding it, so ten remain.
     assert len(body) == 10
     assert orders[-1]["id"] not in {row["id"] for row in body}
 
 
-def test_last_sales_has_the_required_fields(client):
-    customer = _customer(client)
-    service = _service(client)
-    _order(client, customer["id"], service["id"])
+def test_a_last_sales_row_has_the_sale_fields(order, get):
+    row = get("/reports/last-sales")[0]
 
-    row = _report(client, "/reports/last-sales")[0]
-
-    assert row["customer_name"] == "ACME Corp"
-    assert row["service_description"] == SERVICE["description"]
-    assert row["amount"] == "1500.00"
-    assert row["folio"].isdigit()
-    assert row["id"] > 0
-    assert "created_at" in row
+    assert row == {
+        "id": order["id"],
+        "folio": order["folio"],
+        "customer_name": "ACME Corp",
+        "service_description": order["service_description"],
+        "amount": "1500.00",
+        "created_at": order["created_at"],
+    }
 
 
-def test_sales_by_customer_totals_and_counts(client):
-    acme = _customer(client, "ACME Corp", "contact@acme.com")
-    globex = _customer(client, "Globex Corporation", "billing@globex.com")
-    service = _service(client)
-    rich = _service(client, RICH_SERVICE)
+def test_sales_by_customer_reports_count_and_total(
+    create_customer, create_service, create_order, service, order, get
+):
+    globex = create_customer("Globex Corporation", "billing@globex.com")
+    rich = create_service(**RICH_SERVICE)
+    create_order(order["customer_id"], service["id"])
+    create_order(globex["id"], rich["id"])
 
-    _order(client, acme["id"], service["id"])
-    _order(client, acme["id"], service["id"])
-    _order(client, globex["id"], rich["id"])
-
-    body = _report(client, "/reports/sales-by-customer")
+    body = get("/reports/sales-by-customer")
 
     assert body == [
         {
@@ -145,7 +108,7 @@ def test_sales_by_customer_totals_and_counts(client):
             "total": "12000.00",
         },
         {
-            "customer_id": acme["id"],
+            "customer_id": order["customer_id"],
             "customer_name": "ACME Corp",
             "order_count": 2,
             "total": "3000.00",
@@ -153,15 +116,12 @@ def test_sales_by_customer_totals_and_counts(client):
     ]
 
 
-def test_sales_by_customer_includes_customers_without_sales(client):
-    with_sales = _customer(client, "ACME Corp", "contact@acme.com")
-    idle = _customer(client, "Soylent Foods", "orders@soylentfoods.com")
-    service = _service(client)
-    _order(client, with_sales["id"], service["id"])
+def test_sales_by_customer_includes_a_customer_without_sales(create_customer, order, get):
+    idle = create_customer("Soylent Foods", "orders@soylentfoods.com")
 
-    body = _report(client, "/reports/sales-by-customer")
+    body = get("/reports/sales-by-customer")
 
-    assert body[0]["customer_id"] == with_sales["id"]
+    assert body[0]["order_count"] == 1
     assert body[1] == {
         "customer_id": idle["id"],
         "customer_name": "Soylent Foods",
@@ -170,67 +130,48 @@ def test_sales_by_customer_includes_customers_without_sales(client):
     }
 
 
-def test_sales_by_customer_is_ordered_by_total_desc(client):
-    small = _customer(client, "Initech", "accounts@initech.com")
-    big = _customer(client, "Globex Corporation", "billing@globex.com")
-    middle = _customer(client, "Stark Industries", "procurement@stark.com")
-    service = _service(client)
-    rich = _service(client, RICH_SERVICE)
+def test_sales_by_customer_is_ordered_by_total_desc(
+    create_customer, create_service, create_order, order, service, get
+):
+    globex = create_customer("Globex Corporation", "billing@globex.com")
+    initech = create_customer("Initech", "accounts@initech.com")
+    rich = create_service(**RICH_SERVICE)
+    create_order(globex["id"], rich["id"])
+    create_order(order["customer_id"], service["id"])
+    create_order(initech["id"], service["id"])
 
-    _order(client, small["id"], service["id"])
-    _order(client, big["id"], rich["id"])
-    _order(client, middle["id"], service["id"])
-    _order(client, middle["id"], service["id"])
-
-    totals = [row["total"] for row in _report(client, "/reports/sales-by-customer")]
+    totals = [row["total"] for row in get("/reports/sales-by-customer")]
 
     assert totals == ["12000.00", "3000.00", "1500.00"]
 
 
-def test_sales_by_customer_excludes_cancelled_orders(client):
-    customer = _customer(client)
-    service = _service(client)
-    kept = _order(client, customer["id"], service["id"])
-    cancelled = _order(client, customer["id"], service["id"])
-    _cancel(client, cancelled["id"])
+def test_sales_by_customer_keeps_a_customer_whose_only_order_was_cancelled(order, client, get):
+    before = get("/reports/sales-by-customer")[0]
 
-    row = _report(client, "/reports/sales-by-customer")[0]
+    client.post(f"/orders/{order['id']}/cancel")
 
-    assert row["customer_id"] == customer["id"]
-    assert row["order_count"] == 1
-    assert row["total"] == kept["amount"]
+    after = get("/reports/sales-by-customer")[0]
 
-
-def test_sales_by_customer_reports_zero_when_every_order_was_cancelled(client):
-    customer = _customer(client)
-    service = _service(client)
-    order = _order(client, customer["id"], service["id"])
-    _cancel(client, order["id"])
-
-    row = _report(client, "/reports/sales-by-customer")[0]
-
-    assert row["order_count"] == 0
-    assert row["total"] == "0.00"
+    assert (before["order_count"], before["total"]) == (1, "1500.00")
+    assert after == {
+        "customer_id": order["customer_id"],
+        "customer_name": "ACME Corp",
+        "order_count": 0,
+        "total": "0.00",
+    }
 
 
-def test_sales_by_customer_amounts_are_strings(client):
-    customer = _customer(client)
-    service = _service(client)
-    _order(client, customer["id"], service["id"])
+def test_report_money_is_a_json_string_and_the_count_an_integer(order, get):
+    sale = get("/reports/last-sales")[0]
+    customer_row = get("/reports/sales-by-customer")[0]
 
-    row = _report(client, "/reports/sales-by-customer")[0]
-
-    assert isinstance(row["total"], str)
-    assert isinstance(row["order_count"], int)
+    assert isinstance(sale["amount"], str)
+    assert isinstance(customer_row["total"], str)
+    assert isinstance(customer_row["order_count"], int)
 
 
-def test_reports_use_the_snapshot_not_the_current_service_price(client):
-    """A price edit must not rewrite history — the reports read orders.amount."""
-    customer = _customer(client)
-    service = _service(client)
-    _order(client, customer["id"], service["id"])
-
+def test_reports_use_the_snapshot_not_the_current_service_price(order, service, client, get):
     client.patch(f"/services/{service['id']}", json={"suggested_price": "9999.00"})
 
-    assert _report(client, "/reports/last-sales")[0]["amount"] == "1500.00"
-    assert _report(client, "/reports/sales-by-customer")[0]["total"] == "1500.00"
+    assert get("/reports/last-sales")[0]["amount"] == "1500.00"
+    assert get("/reports/sales-by-customer")[0]["total"] == "1500.00"

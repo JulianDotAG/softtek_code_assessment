@@ -1,75 +1,68 @@
-CUSTOMER = {"name": "ACME Corp", "email": "contact@acme.com"}
+"""`POST /customers` and `GET /customers/{customer_id}`.
+
+The email is the identity of a customer: it is unique (409 on a repeat, whatever the name)
+and validated (422). A name is required and at most 200 characters. An unknown id is a
+404 whose message names the resource and the id.
+"""
 
 
-def test_create_customer_returns_201_with_payload(client):
-    response = client.post("/customers", json=CUSTOMER)
+def test_create_customer_returns_the_stored_customer(client):
+    response = client.post("/customers", json={"name": "ACME Corp", "email": "contact@acme.com"})
 
-    assert response.status_code == 201, response.text
+    assert response.status_code == 201
     body = response.json()
     assert body["id"] > 0
     assert body["name"] == "ACME Corp"
     assert body["email"] == "contact@acme.com"
 
 
-def test_created_customer_is_persisted(client):
-    created_response = client.post("/customers", json=CUSTOMER)
-    assert created_response.status_code == 201, created_response.text
-    created = created_response.json()
+def test_created_customer_can_be_fetched_by_id(create_customer, get):
+    created = create_customer()
 
-    fetched = client.get(f"/customers/{created['id']}")
-
-    assert fetched.status_code == 200
-    assert fetched.json() == created
+    assert get(f"/customers/{created['id']}") == created
 
 
-def test_create_customer_with_duplicate_email_returns_409(client):
-    assert client.post("/customers", json=CUSTOMER).status_code == 201
+def test_duplicate_email_returns_409_even_with_another_name(create_customer, client):
+    create_customer()
 
-    response = client.post("/customers", json={**CUSTOMER, "name": "Other Co"})
+    response = client.post("/customers", json={"name": "Other Co", "email": "contact@acme.com"})
 
     assert response.status_code == 409
-    assert "contact@acme.com" in response.json()["detail"]
+    assert response.json()["detail"] == "A customer with email contact@acme.com already exists"
 
 
-def test_create_customer_with_invalid_email_returns_422(client):
-    response = client.post("/customers", json={"name": "ACME", "email": "not-an-email"})
-
-    assert response.status_code == 422
-
-
-def test_create_customer_without_name_returns_422(client):
+def test_missing_name_returns_422(client):
     response = client.post("/customers", json={"email": "contact@acme.com"})
 
     assert response.status_code == 422
 
 
-def test_create_customer_with_too_long_name_returns_422(client):
-    response = client.post("/customers", json={"name": "x" * 201, "email": "other@acme.com"})
+def test_empty_name_returns_422(client):
+    response = client.post("/customers", json={"name": "", "email": "contact@acme.com"})
 
     assert response.status_code == 422
 
 
-def test_create_customer_with_empty_name_returns_422(client):
-    response = client.post("/customers", json={"name": "", "email": "empty@acme.com"})
+def test_name_over_200_characters_returns_422(client):
+    response = client.post("/customers", json={"name": "x" * 201, "email": "contact@acme.com"})
 
     assert response.status_code == 422
 
 
-def test_get_customer_by_id(client):
-    created_response = client.post("/customers", json=CUSTOMER)
-    assert created_response.status_code == 201, created_response.text
-    created = created_response.json()
+def test_malformed_email_returns_422(client):
+    response = client.post("/customers", json={"name": "ACME Corp", "email": "not-an-email"})
 
-    response = client.get(f"/customers/{created['id']}")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["id"] == created["id"]
-    assert body["email"] == "contact@acme.com"
+    assert response.status_code == 422
 
 
-def test_get_missing_customer_returns_404(client):
+def test_missing_customer_returns_404(client):
     response = client.get("/customers/9999")
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "Customer 9999 not found"
+    assert response.json() == {"detail": "Customer 9999 not found"}
+
+
+def test_customer_id_must_be_an_integer(client):
+    response = client.get("/customers/abc")
+
+    assert response.status_code == 422

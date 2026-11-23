@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import pytest
 from alembic import command
@@ -74,3 +74,75 @@ def client(session: Session) -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+# --- Fixtures for the resources every test file needs -------------------------------
+# Factories are used when a test needs two of something, the plain fixtures for the
+# common case. Assertions live in the factories, so a setup failure names the setup.
+
+
+@pytest.fixture
+def create_customer(client: TestClient) -> Callable[..., dict]:
+    def _create(name: str = "ACME Corp", email: str = "contact@acme.com") -> dict:
+        response = client.post("/customers", json={"name": name, "email": email})
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    return _create
+
+
+@pytest.fixture
+def create_service(client: TestClient) -> Callable[..., dict]:
+    def _create(**overrides: str) -> dict:
+        payload = {
+            "name": "24/7 support",
+            "description": "Phone and email support, 8 hour response time",
+            "suggested_price": "1500.00",
+            **overrides,
+        }
+        response = client.post("/services", json=payload)
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    return _create
+
+
+@pytest.fixture
+def create_order(client: TestClient) -> Callable[..., dict]:
+    def _create(customer_id: int, service_id: int, **extra: str) -> dict:
+        payload = {"customer_id": customer_id, "service_id": service_id, **extra}
+        response = client.post("/orders", json=payload)
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    return _create
+
+
+@pytest.fixture
+def customer(create_customer: Callable[..., dict]) -> dict:
+    """The default customer: ACME Corp, contact@acme.com."""
+    return create_customer()
+
+
+@pytest.fixture
+def service(create_service: Callable[..., dict]) -> dict:
+    """The default service: 24/7 support, 1500.00."""
+    return create_service()
+
+
+@pytest.fixture
+def order(create_order: Callable[..., dict], customer: dict, service: dict) -> dict:
+    """A placed order of that customer on that service."""
+    return create_order(customer["id"], service["id"])
+
+
+@pytest.fixture
+def get(client: TestClient) -> Callable[[str], dict]:
+    """GET that asserts 200 first, so a missing route fails on the contract, not on a KeyError."""
+
+    def _get(path: str) -> dict:
+        response = client.get(path)
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    return _get
