@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.errors import ConflictError, NotFoundError
-from app.routers import customers, orders, services
+from app.routers import customers, orders, reports, services
 
 app = FastAPI(title="Customer, Service and Order API", version="1.0.0")
 
@@ -25,3 +25,4 @@ def health() -> dict[str, str]:
 app.include_router(customers.router)
 app.include_router(services.router)
 app.include_router(orders.router)
+app.include_router(reports.router)

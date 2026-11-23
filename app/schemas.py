@@ -73,3 +73,23 @@ class OrderRead(BaseModel):
     created_at: datetime
     cancelled_at: datetime | None
     customer: CustomerSummary
+
+
+class LastSaleRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    folio: str
+    customer_name: str
+    service_description: str
+    amount: Decimal
+    created_at: datetime
+
+
+class SalesByCustomerRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    customer_id: int
+    customer_name: str
+    order_count: int
+    total: Decimal
