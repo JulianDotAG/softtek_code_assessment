@@ -36,8 +36,11 @@ def last_sales(session: Session, limit: int = LAST_SALES_LIMIT) -> Sequence[Row]
 def sales_by_customer(session: Session) -> Sequence[Row]:
     """Order count and accumulated amount per customer, biggest spender first.
 
-    The join is a LEFT JOIN so a customer with no sales still appears, and the cancelled
-    filter sits in the ON clause: in the WHERE it would silently drop those customers.
+    The join is a LEFT JOIN so a customer with no sales still appears. The cancelled filter
+    lives in the ON clause rather than the WHERE: today both placements agree, because an
+    unmatched row has NULL in every order column and "NULL IS NULL" is true — which is
+    exactly why the wrong one survives review. The next predicate added to that WHERE
+    (amount > 5000, for instance) would drop every customer without a sale.
     """
     statement = (
         select(
