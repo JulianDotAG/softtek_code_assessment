@@ -43,6 +43,18 @@ def test_create_customer_without_name_returns_422(client):
     assert response.status_code == 422
 
 
+def test_create_customer_with_too_long_name_returns_422(client):
+    response = client.post("/customers", json={"name": "x" * 201, "email": "other@acme.com"})
+
+    assert response.status_code == 422
+
+
+def test_create_customer_with_empty_name_returns_422(client):
+    response = client.post("/customers", json={"name": "", "email": "empty@acme.com"})
+
+    assert response.status_code == 422
+
+
 def test_get_customer_by_id(client):
     created_response = client.post("/customers", json=CUSTOMER)
     assert created_response.status_code == 201, created_response.text

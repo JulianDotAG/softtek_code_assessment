@@ -54,6 +54,30 @@ def test_create_service_with_too_long_name_returns_422(client):
     assert response.status_code == 422
 
 
+def test_a_cent_is_a_valid_price(client):
+    """`gt=0` rejects zero and negatives, so the smallest valid price must still pass."""
+    created = _create(client, suggested_price="0.01")
+
+    assert created["suggested_price"] == "0.01"
+
+
+@pytest.mark.parametrize(
+    ("price", "why"),
+    [("1.234", "three decimals"), ("12345678901.00", "eleven whole digits")],
+)
+def test_create_service_with_a_price_the_column_cannot_hold_returns_422(client, price, why):
+    """The schema mirrors NUMERIC(12,2); without it the database would round in silence."""
+    response = client.post("/services", json={**SERVICE, "suggested_price": price})
+
+    assert response.status_code == 422, why
+
+
+def test_create_service_without_price_returns_422(client):
+    response = client.post("/services", json={"name": "Support", "description": "d"})
+
+    assert response.status_code == 422
+
+
 def test_get_service_by_id(client):
     created = _create(client)
 
@@ -104,6 +128,41 @@ def test_update_service_with_invalid_price_returns_422(client):
     response = client.patch(f"/services/{created['id']}", json={"suggested_price": "-1"})
 
     assert response.status_code == 422
+
+
+def test_update_service_with_empty_body_changes_nothing(client):
+    """A PATCH with no fields is legal: nothing is sent, nothing is touched."""
+    created = _create(client)
+
+    response = client.patch(f"/services/{created['id']}", json={})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == created["name"]
+    assert body["description"] == created["description"]
+    assert body["suggested_price"] == created["suggested_price"]
+
+
+def test_update_service_ignores_unknown_fields(client):
+    created = _create(client)
+
+    response = client.patch(f"/services/{created['id']}", json={"colour": "red"})
+
+    assert response.status_code == 200
+    assert response.json()["name"] == created["name"]
+
+
+@pytest.mark.parametrize("field", ["name", "description", "suggested_price"])
+def test_update_service_with_explicit_null_returns_422(client, field):
+    """null is not "leave it alone": it would reach the UPDATE and break NOT NULL."""
+    created = _create(client)
+
+    response = client.patch(f"/services/{created['id']}", json={field: None})
+
+    assert response.status_code == 422
+    assert "cannot be null" in response.text
+    # Nothing reached the database.
+    assert client.get(f"/services/{created['id']}").json() == created
 
 
 def test_update_missing_service_returns_404(client):

@@ -1,7 +1,8 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class CustomerCreate(BaseModel):
@@ -30,6 +31,18 @@ class ServiceUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, min_length=1, max_length=1000)
     suggested_price: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
+
+    @model_validator(mode="after")
+    def reject_explicit_nulls(self) -> Self:
+        """`null` does not mean "leave it alone", and must not reach the UPDATE.
+
+        An omitted field stays out of `model_fields_set`; an explicit null is in it, and
+        writing it would hit the NOT NULL constraint as a 500 instead of a 422.
+        """
+        nulls = sorted(field for field in self.model_fields_set if getattr(self, field) is None)
+        if nulls:
+            raise ValueError(f"{', '.join(nulls)} cannot be null")
+        return self
 
 
 class ServiceRead(BaseModel):

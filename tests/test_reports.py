@@ -59,6 +59,16 @@ def test_last_sales_returns_the_ten_most_recent(client):
     assert {row["id"] for row in body} == {order["id"] for order in orders[2:]}
 
 
+def test_last_sales_returns_everything_when_there_are_fewer_than_ten(client):
+    """Ten is a ceiling, not a target."""
+    customer = _customer(client)
+    service = _service(client)
+    for _ in range(3):
+        _order(client, customer["id"], service["id"])
+
+    assert len(_report(client, "/reports/last-sales")) == 3
+
+
 def test_last_sales_is_ordered_newest_first(client):
     customer = _customer(client)
     service = _service(client)
@@ -212,3 +222,15 @@ def test_sales_by_customer_amounts_are_strings(client):
 
     assert isinstance(row["total"], str)
     assert isinstance(row["order_count"], int)
+
+
+def test_reports_use_the_snapshot_not_the_current_service_price(client):
+    """A price edit must not rewrite history — the reports read orders.amount."""
+    customer = _customer(client)
+    service = _service(client)
+    _order(client, customer["id"], service["id"])
+
+    client.patch(f"/services/{service['id']}", json={"suggested_price": "9999.00"})
+
+    assert _report(client, "/reports/last-sales")[0]["amount"] == "1500.00"
+    assert _report(client, "/reports/sales-by-customer")[0]["total"] == "1500.00"

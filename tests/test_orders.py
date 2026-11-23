@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 SERVICE = {
     "name": "24/7 support",
     "description": "Phone and email support, 8 hour response time",
@@ -85,6 +83,19 @@ def test_editing_the_service_does_not_change_existing_orders(client):
     assert body["service_description"] == SERVICE["description"]
 
 
+def test_orders_created_after_the_edit_use_the_new_price(client):
+    """The other half of the same rule: the snapshot is a copy, not a link that never updates."""
+    customer = _create_customer(client)
+    service = _create_service(client)
+    before = _create_order(client, customer["id"], service["id"])
+
+    client.patch(f"/services/{service['id']}", json={"suggested_price": "9999.00"})
+    after = _create_order(client, customer["id"], service["id"])
+
+    assert after["amount"] == "9999.00"
+    assert client.get(f"/orders/{before['id']}").json()["amount"] == "1500.00"
+
+
 def test_created_order_is_persisted(client):
     customer = _create_customer(client)
     service = _create_service(client)
@@ -131,6 +142,14 @@ def test_create_order_without_customer_id_returns_422(client):
     assert response.status_code == 422
 
 
+def test_create_order_without_service_id_returns_422(client):
+    customer = _create_customer(client)
+
+    response = client.post("/orders", json={"customer_id": customer["id"]})
+
+    assert response.status_code == 422
+
+
 def test_get_missing_order_returns_404(client):
     response = client.get("/orders/9999")
 
@@ -170,6 +189,18 @@ def test_cancel_missing_order_returns_404(client):
     assert response.json()["detail"] == "Order 9999 not found"
 
 
+def test_cancelling_one_order_leaves_the_others_alone(client):
+    customer = _create_customer(client)
+    service = _create_service(client)
+    cancelled = _create_order(client, customer["id"], service["id"])
+    untouched = _create_order(client, customer["id"], service["id"])
+
+    client.post(f"/orders/{cancelled['id']}/cancel")
+
+    assert client.get(f"/orders/{cancelled['id']}").json()["cancelled_at"] is not None
+    assert client.get(f"/orders/{untouched['id']}").json()["cancelled_at"] is None
+
+
 def test_cancelled_order_keeps_its_snapshot(client):
     customer = _create_customer(client)
     service = _create_service(client)
@@ -181,4 +212,3 @@ def test_cancelled_order_keeps_its_snapshot(client):
     assert body["folio"] == order["folio"]
     assert body["amount"] == "1500.00"
     assert body["service_description"] == SERVICE["description"]
-    assert Decimal(body["amount"]) == Decimal("1500.00")
