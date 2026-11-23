@@ -16,9 +16,9 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.3",
-    "httpx>=0.28",
     "pytest-cov>=6.0",
     "ruff>=0.8",
+    "httpx2>=2.16.2",
 ]
 
 # This repository is an application, not a distributable library:
