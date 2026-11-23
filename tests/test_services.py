@@ -43,9 +43,7 @@ def test_create_service_with_non_positive_price_returns_422(client, price):
 
 
 def test_create_service_without_description_returns_422(client):
-    response = client.post(
-        "/services", json={"name": "Support", "suggested_price": "100.00"}
-    )
+    response = client.post("/services", json={"name": "Support", "suggested_price": "100.00"})
 
     assert response.status_code == 422
 
