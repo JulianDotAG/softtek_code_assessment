@@ -1,8 +1,10 @@
 from collections.abc import Iterator
 
 import pytest
+from alembic import command
+from alembic.config import Config as AlembicConfig
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -11,11 +13,10 @@ from app.config import settings
 
 @pytest.fixture(scope="session")
 def engine() -> Iterator[Engine]:
-    """Engine bound to the dedicated test database.
+    """Engine bound to a test database rebuilt from the real migrations.
 
-    The destructive part of the harness (schema reset, migrations) will hang off this
-    fixture. Until that exists, fail loudly if the URL does not look like a test database:
-    a mistyped URL here would otherwise wipe a development database later.
+    The schema reset is destructive, so the URL is validated first: a mistyped
+    TEST_DATABASE_URL must never be able to wipe a development database.
     """
     url = settings.test_database_url
     database_name = url.rsplit("/", 1)[-1]
@@ -26,6 +27,17 @@ def engine() -> Iterator[Engine]:
         )
 
     eng = create_engine(url, pool_pre_ping=True)
+    with eng.connect() as connection:
+        connection.execute(text("DROP SCHEMA public CASCADE"))
+        connection.execute(text("CREATE SCHEMA public"))
+        connection.commit()
+
+    # Applying the migrations instead of create_all() keeps them covered by the suite:
+    # if a migration is broken, every test fails here.
+    alembic_config = AlembicConfig("alembic.ini")
+    alembic_config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
+    command.upgrade(alembic_config, "head")
+
     yield eng
     eng.dispose()
 
