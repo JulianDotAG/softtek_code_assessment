@@ -2,16 +2,14 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.crud import customers, services
-from app.errors import ConflictError, NotFoundError
+from app.crud.common import get_or_404, save
+from app.errors import ConflictError
 from app.models import Order
 from app.schemas import OrderCreate
 
 
 def get(session: Session, order_id: int) -> Order:
-    order = session.get(Order, order_id)
-    if order is None:
-        raise NotFoundError("Order", order_id)
-    return order
+    return get_or_404(session, Order, order_id, "Order")
 
 
 def _next_folio(session: Session) -> str:
@@ -39,10 +37,7 @@ def create(session: Session, payload: OrderCreate) -> Order:
         service_description=service.description,
         amount=service.suggested_price,
     )
-    session.add(order)
-    session.commit()
-    session.refresh(order)
-    return order
+    return save(session, order)
 
 
 def cancel(session: Session, order_id: int) -> Order:
@@ -52,6 +47,4 @@ def cancel(session: Session, order_id: int) -> Order:
 
     # now() comes from the database, the same clock that stamped created_at.
     order.cancelled_at = func.now()
-    session.commit()
-    session.refresh(order)
-    return order
+    return save(session, order)

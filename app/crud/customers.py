@@ -1,16 +1,14 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.errors import ConflictError, NotFoundError
+from app.crud.common import get_or_404, save
+from app.errors import ConflictError
 from app.models import Customer
 from app.schemas import CustomerCreate
 
 
 def get(session: Session, customer_id: int) -> Customer:
-    customer = session.get(Customer, customer_id)
-    if customer is None:
-        raise NotFoundError("Customer", customer_id)
-    return customer
+    return get_or_404(session, Customer, customer_id, "Customer")
 
 
 def create(session: Session, payload: CustomerCreate) -> Customer:
@@ -20,8 +18,4 @@ def create(session: Session, payload: CustomerCreate) -> Customer:
     if existing is not None:
         raise ConflictError(f"A customer with email {payload.email} already exists")
 
-    customer = Customer(**payload.model_dump())
-    session.add(customer)
-    session.commit()
-    session.refresh(customer)
-    return customer
+    return save(session, Customer(**payload.model_dump()))
