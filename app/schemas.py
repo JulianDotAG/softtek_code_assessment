@@ -41,3 +41,35 @@ class ServiceRead(BaseModel):
     suggested_price: Decimal
     created_at: datetime
     updated_at: datetime
+
+
+class CustomerSummary(BaseModel):
+    """The customer, trimmed to what an order needs to show."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+
+
+class OrderCreate(BaseModel):
+    # The amount is intentionally absent: it comes from the service, never from the client.
+    # extra="ignore" is pydantic's default, spelled out because this rule is load bearing.
+    model_config = ConfigDict(extra="ignore")
+
+    customer_id: int
+    service_id: int
+
+
+class OrderRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    folio: str
+    customer_id: int
+    service_id: int
+    service_description: str
+    amount: Decimal
+    created_at: datetime
+    cancelled_at: datetime | None
+    customer: CustomerSummary

@@ -60,9 +60,7 @@ class Order(Base):
     )
     # NULL means the order is active. A timestamp is more useful than a boolean:
     # it answers "when was it cancelled" without a second column.
-    cancelled_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Joined eagerly: every order response carries the customer, so a lazy load
     # would turn one query into 1 + N.
