@@ -83,7 +83,7 @@ docs/           design decisions, entity diagram
 
 Both relationships are one-to-many: a customer places many orders, a service is sold in many orders, and every order references exactly one of each. `amount` and `service_description` are copied at creation, so editing a service never rewrites an order that was already placed.
 
-## Request flow
+## Get Request Flow
 
 ![Incoming request flow, from the client to the JSON response](docs/request-flow.jpg)
 
@@ -105,8 +105,7 @@ Both relationships are one-to-many: a customer places many orders, a service is 
 | `GET`   | `/reports/sales-by-customer` | orders and total per customer, biggest first  |
 | `GET`   | `/health`                    | liveness                                      |
 
-Both reports exclude cancelled orders and return a flat JSON array. Deliberately out of scope: list endpoints, updating an order, and any form of delete.
-
+Both reports exclude cancelled orders and return a flat JSON array.
 ## Errors
 
 | Status | When                                                                                              | Body                                                        |
