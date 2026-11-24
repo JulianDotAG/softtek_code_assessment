@@ -31,6 +31,23 @@ def test_duplicate_email_returns_409_even_with_another_name(create_customer, cli
     assert response.json()["detail"] == "A customer with email contact@acme.com already exists"
 
 
+def test_email_is_stored_lowercased(client):
+    """`EmailStr` normalises the domain only; the API normalises the rest of the address."""
+    response = client.post("/customers", json={"name": "ACME Corp", "email": "Contact@ACME.com"})
+
+    assert response.status_code == 201
+    assert response.json()["email"] == "contact@acme.com"
+
+
+def test_duplicate_email_ignoring_case_returns_409(create_customer, client):
+    create_customer()
+
+    response = client.post("/customers", json={"name": "Other Co", "email": "CONTACT@ACME.COM"})
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "A customer with email contact@acme.com already exists"
+
+
 def test_missing_name_returns_422(client):
     response = client.post("/customers", json={"email": "contact@acme.com"})
 

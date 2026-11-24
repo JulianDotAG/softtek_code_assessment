@@ -24,10 +24,12 @@ def _next_folio(session: Session) -> str:
 
 def create(session: Session, payload: OrderCreate) -> Order:
     # Reuses the customer and service lookups, so a missing id produces the same
-    # "Customer 12 not found" message here as it does in the rest of the API.
+    # "Customer X not found" message here as it does in the rest of the API.
     customer = customers.get(session, payload.customer_id)
     service = services.get(session, payload.service_id)
 
+    # Snapshot happens here by using the same data at created time but duplicating
+    # the information.
     order = Order(
         folio=_next_folio(session),
         customer_id=customer.id,
